@@ -13,28 +13,27 @@ const app = new App({
 });
 const userClient = new WebClient(SLACK_USER_TOKEN);
 
-async function getMessageStats(channelName, client, userMessage) {
+async function getMessageStats(channelName, client, userId, startDate, endDate, userMessage) {
     console.log(`let's do this!!`)
+    let totalMessages = 0;     
+    let yourMessages = 0; 
     let page = 1;
     const count = 100;
-    const yearMatch = (userMessage || '').match(/\b(20\d{2})\b/);
-    const year = yearMatch ? yearMatch[1] : '2025';
-    const yearNum = Number(year);
-    const startDate = `${yearNum}-01-01`;
-    const endDate = `${yearNum + 1}-01-01`;
+
 
     while (true) {
         const theSearch = await userClient.search.messages({ // searches
             query: `in:#${channelName} after:${startDate} before:${endDate}`, // queries the channel for messages from 01-01 to 01-01 (next year, 01-01 is not included, at least I don't think)
-            page: page,
-            count: count
-        })
-        console.log(theSearch.query)
+            page,
+            count
+        });
+        console.log(theSearch.query);
         if (!theSearch.messages || !theSearch.messages.matches.length) break; // if there are no messages, stop
 
         for (const msg of theSearch.messages.matches) { // every message adds to the total messages
             console.log('and another!!')
             totalMessages ++
+            if (msg.user === userId) yourMessages++;
         }
 
         if (page >= theSearch.messages.paging.pages) break; // if it gets to the last page, stop
@@ -44,13 +43,13 @@ async function getMessageStats(channelName, client, userMessage) {
         await new Promise(resolve => setTimeout(resolve,1000)) // be kind to the api
 
     }
-    return totalMessages;
+    return { totalMessages, yourMessages };
 
 }
 
-
 app.event('app_mention', async ({ event, client }) => { // checks for mention
 
+    const userId = event.user;
     const channelId = event.channel;
     const channelInfo = await client.conversations.info({ channel: channelId });
     const channelName = channelInfo.channel.name;
@@ -64,7 +63,12 @@ app.event('app_mention', async ({ event, client }) => { // checks for mention
     const resp = firstRespMsg[Math.floor(Math.random() * firstRespMsg.length)];
     const load = loadingMsg[Math.floor(Math.random() * loadingMsg.length)];
     const fini = finishedMsg[Math.floor(Math.random() * finishedMsg.length)];
-
+    const userMessage = event.text;
+    const yearMatch = (userMessage || '').match(/\b(20\d{2})\b/);
+    const year = yearMatch ? yearMatch[1] : '2025';
+    const yearNum = Number(year);
+    const startDate = `${yearNum}-01-01`;
+    const endDate = `${yearNum + 1}-01-01`;
 
     const reply = await client.chat.postMessage({
         channel: event.channel,
@@ -75,7 +79,7 @@ app.event('app_mention', async ({ event, client }) => { // checks for mention
     const messageTime = reply.ts;
     await new Promise(resolve => setTimeout(resolve, 2345));
     
-    const totalMessages = await getMessageStats(channelName, userClient, channelId, event.text); // calculates the total messages
+    const { totalMessages, yourMessages } = await getMessageStats(channelName, userClient, userId, startDate, endDate, userMessage);
 
     await new Promise(resolve => setTimeout(resolve, 5000));
     
@@ -85,11 +89,14 @@ app.event('app_mention', async ({ event, client }) => { // checks for mention
         text: load
     });
 
+    const yourPercent = totalMessages === 0 ? 0 : (yourMessages / totalMessages) * 100;
+    const ypR = Math.round(yourPercent)
+
     
     await client.chat.update({ // the final one
         channel: event.channel,
         ts: messageTime,
-        text: `${fini} ${totalMessages} in ${channelName}`
+        text: `${fini} ${totalMessages} in ${channelName} (and ${ypR}% or ${yourMessages} were yours!)`
     });
 }),
 
